@@ -1,0 +1,11 @@
+--- a/lib/index.js	2026-08-17 21:56:12.120264110 +0800
++++ b/lib/index.js	2026-08-17 21:56:12.100264110 +0800
+@@ -316,7 +316,7 @@
+ 		}
+ 	};
+ 	ctx.tools.register(defineTool({
+-		name: "bash",
++		name: "bash_persistent",
+ 		description: config.description,
+ 		parameters: { command: {
+ 			type: "string",
