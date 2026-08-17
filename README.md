@@ -12,7 +12,18 @@ bash <(curl -fsSL https://raw.githubusercontent.com/xkxxs/deepseek-harness-termu
 - 幂等:重跑 = 升级/修复;`--uninstall` 卸载(保留 dns53 与 ~/.dsh 数据)
 - 前置:Termux + aarch64;dns53 转发器(opencode 等 CLI 的附属组件,脚本检测到即跳过,不会重复安装)
 - 固定版本组合:node v24.19.0 + dsh 0.1.0-rc.6;官方无自动更新,升级 = 手动重跑脚本
-- 安装后:`dsh`(前台,占用终端)/ `dsh web`(后台常驻,日志 ~/.dsh/web.log)/ `dsh stop`(停止)→ http://127.0.0.1:3080;首次在 web UI 权限选择器切 danger-full-access
+- 安装后,在终端使用(`http://127.0.0.1:3080` 访问 web UI;首次使用请在 UI 权限选择器切 danger-full-access):
+
+```bash
+# 前台启动(占用终端, Ctrl+C 停止)
+dsh
+
+# 后台常驻(脱离终端, 日志 ~/.dsh/web.log)
+dsh web
+
+# 停止服务
+dsh stop
+```
 - 结构:install.sh(主脚本)+ patches/02,03(补丁)+ scripts/run_dsh_web.sh(旧启动脚本,已被 install.sh 生成的 ~/.local/bin/dsh 与 dsh-web 取代)
 
 ---
