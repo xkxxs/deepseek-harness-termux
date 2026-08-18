@@ -1,7 +1,7 @@
 # DeepSeek Harness on Termux — glibc 路线实施方案与过程记录
 
 > 2026-08-17 · OPPO/OnePlus · Termux (Android, aarch64)
-> 目标:在 Termux 上运行官方 `@deepseek-ai/dsh`(DeepSeek Harness 0.1.0-rc.6),不做源码级 Android 适配,走 glibc 兼容层路线。
+> 目标:在 Termux 上运行官方 `@deepseek-ai/dsh`(DeepSeek Harness 0.1.0-rc.7),不做源码级 Android 适配,走 glibc 兼容层路线。
 
 ## 0. 一键安装(移植到新设备)
 
@@ -11,7 +11,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/xkxxs/deepseek-harness-termu
 
 - 幂等:重跑 = 升级/修复;`--uninstall` 卸载(保留 dns53 与 ~/.dsh 数据)
 - 前置:Termux + aarch64;dns53 转发器(opencode 等 CLI 的附属组件,脚本检测到即跳过,不会重复安装)
-- 固定版本组合:node v24.19.0 + dsh 0.1.0-rc.6;官方无自动更新,升级 = 手动重跑脚本
+- 固定版本组合:node v24.19.0 + dsh 0.1.0-rc.7;官方无自动更新,升级 = 手动重跑脚本
 - 安装后,在终端使用(`http://127.0.0.1:3080` 访问 web UI;首次使用请在 UI 权限选择器切 danger-full-access):
 
 ```bash
@@ -266,7 +266,7 @@ dns53 日志          ~/.codex/dns53.log
 
 | 组件 | 版本 |
 |---|---|
-| @deepseek-ai/dsh | 0.1.0-rc.6 |
+| @deepseek-ai/dsh | 0.1.0-rc.7 |
 | Node.js (glibc) | 24.19.0 (nodejs.org linux-arm64) |
 | npm | 11.17.0 |
 | koffi | 3.1.5(预编译 @koromix/koffi-linux-arm64) |
@@ -286,7 +286,7 @@ dns53 日志          ~/.codex/dns53.log
 
 ### 软件包
 - **Node.js**:`https://nodejs.org/dist/v24.19.0/node-v24.19.0-linux-arm64.tar.xz`(官方 glibc linux-arm64 构建,经 `grun` 运行)
-- **@deepseek-ai/dsh**:`https://www.npmjs.com/package/@deepseek-ai/dsh`(DeepSeek Harness 本体,版本固定 0.1.0-rc.6)
+- **@deepseek-ai/dsh**:`https://www.npmjs.com/package/@deepseek-ai/dsh`(DeepSeek Harness 本体,版本固定 0.1.0-rc.7)
 - **pnpm**:`https://www.npmjs.com/package/pnpm`(dsh profile 依赖管理,Termux 仓库无此包,经 npm 安装)
 
 ### 项目参考
