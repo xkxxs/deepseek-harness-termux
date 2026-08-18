@@ -25,7 +25,8 @@ GLIBC_PREFIX="$PREFIX/glibc"
 NODE_VER="v24.19.0"
 NODE_DIR="$GLIBC_PREFIX/opt/node-$NODE_VER-linux-arm64"
 WRAPPER_DIR="$GLIBC_PREFIX/opt/bin"
-DSH_VER="0.1.0-rc.7"
+# 不固定版本: 默认拉取 latest (DSH_VER 环境变量可覆盖, 如 DSH_VER=0.1.0-rc.7 ./install.sh)
+DSH_VER="${DSH_VER:-}"
 PROFILE_DIR="$HOME_DIR/.dsh/profiles/web"
 PATCH_DIR="$(dirname "$(readlink -f "$0")")/patches"
 RUNNER_URL="https://raw.githubusercontent.com/xkxxs/deepseek-harness-termux/main/install.sh"
@@ -232,10 +233,11 @@ EOF
 # ---------- 安装 dsh ----------
 install_dsh() {
     local npm="$NODE_DIR/bin/node $NODE_DIR/lib/node_modules/npm/bin/npm-cli.js"
-    info "npm 安装 @deepseek-ai/dsh@$DSH_VER (--ignore-scripts)…"
+    local pkg="@deepseek-ai/dsh${DSH_VER:+@$DSH_VER}"
+    info "npm 安装 $pkg (--ignore-scripts)…"
     # shellcheck disable=SC2086
-    PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun $npm install -g --ignore-scripts "@deepseek-ai/dsh@$DSH_VER"
-    ok "dsh $DSH_VER 已安装"
+    PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun $npm install -g --ignore-scripts "$pkg"
+    ok "dsh 已安装 ($pkg)"
     if [ ! -f "$PREFIX/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
         info "npm 安装 pnpm (dsh plugin 管理器依赖)…"
         # shellcheck disable=SC2086
@@ -260,6 +262,8 @@ init_profile() {
 }
 
 # ---------- 补丁 ----------
+# 注意: 补丁针对当前源码结构, 新版本可能失效。失效时仅警告不中断
+# (会话持久化/持久终端可能不可用, 但核心功能不受影响; 等官方正式版/musl)。
 apply_patches() {
     local profiles_nm="$HOME_DIR/.dsh/profiles/node_modules/@deepseek-ai"
     info "打补丁…"
@@ -269,9 +273,12 @@ apply_patches() {
     else
         ( cd "$profiles_nm/dsh-session-persistence-jsonl" && \
           patch -p1 < "$PATCH_DIR/02-session-persistence-link-rename.patch" ) || \
-          fail "补丁 02 失败 — 版本漂移? 检查 $PATCH_DIR"
-        grep -q 'error?.code === "EACCES"' "$profiles_nm/dsh-session-persistence-jsonl/lib/index.js" || fail "校验失败: 持久化补丁未生效"
-        ok "补丁 02 (会话持久化 link->rename)"
+          warn "补丁 02 失败 — 版本漂移? (会话持久化可能失效, 重启后历史可能丢失)"
+        if grep -q 'error?.code === "EACCES"' "$profiles_nm/dsh-session-persistence-jsonl/lib/index.js" 2>/dev/null; then
+            ok "补丁 02 (会话持久化 link->rename)"
+        else
+            warn "补丁 02 未生效 — 需等待适配新版本"
+        fi
     fi
     # 2) 持久终端工具改名: 与普通 bash 同名冲突
     if grep -q '"bash_persistent"' "$profiles_nm/dsh-tool-bash-persistent/lib/index.js" 2>/dev/null; then
@@ -279,11 +286,13 @@ apply_patches() {
     else
         ( cd "$profiles_nm/dsh-tool-bash-persistent" && \
           patch -p1 < "$PATCH_DIR/03-bash-persistent-rename.patch" ) || \
-          fail "补丁 03 失败 — 版本漂移? 检查 $PATCH_DIR"
-        grep -q '"bash_persistent"' "$profiles_nm/dsh-tool-bash-persistent/lib/index.js" || fail "校验失败: 改名补丁未生效"
-        ok "补丁 03 (bash_persistent 改名)"
+          warn "补丁 03 失败 — 版本漂移? (持久终端工具可能不可用)"
+        if grep -q '"bash_persistent"' "$profiles_nm/dsh-tool-bash-persistent/lib/index.js" 2>/dev/null; then
+            ok "补丁 03 (bash_persistent 改名)"
+        else
+            warn "补丁 03 未生效 — 需等待适配新版本"
+        fi
     fi
-    ok "补丁校验通过"
 }
 
 # ---------- profile 配置文件 (terminals 服务 + 权限) ----------
