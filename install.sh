@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
 # deepseek-harness-termux — 在 Termux (Android aarch64) 上一键安装 DeepSeek Harness
-# 前置要求: 有 root(推荐, dns53 转发器); 无 root 时 dns53 无法绑定 53 端口, 需自行准备 resolv.conf 方案
+# 前置要求: Termux aarch64; 有 root 推荐 (dns53 转发器更稳定), 无 root 也可用 (dns-bootstrap 实测公共 DNS)
 #
 # 用法:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/xkxxs/deepseek-harness-termux/main/install.sh)
@@ -182,21 +182,160 @@ install_dependencies() {
 # Android 无 /etc/resolv.conf; glibc 进程解析失败。复用 dns53 转发器
 # (opencode 等 CLI 的附属组件, 若已存在则跳过), 并将 glibc 的 resolv.conf
 # 指向 127.0.0.1。注意: dns-bootstrap.js 重写 /usr/etc/resolv.conf 后需重跑本函数。
+#
+# 无 root 时: dns53 无法绑定 53 端口, 改用 dns-bootstrap 实测公共 DNS
+# 并直接写入 resolv.conf (glibc 直接读, 不需要 proot)。
 fix_dns() {
-    info "检查 DNS 转发器 (dns53)…"
-    if [ -f "$DNS53_JS" ]; then
-        ok "dns53 已存在 ($DNS53_JS), 请确认其正在运行 (常驻/开机自启由安装它的 CLI 负责)"
+    local RESOLV="$PREFIX/etc/resolv.conf"
+    local DNSBOOT="$HOME_DIR/.local/bin/dns-bootstrap.js"
+    local has_root=false
+    command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null && has_root=true
+
+    if $has_root; then
+        info "检查 DNS 转发器 (dns53)…"
+        if [ -f "$DNS53_JS" ]; then
+            ok "dns53 已存在 ($DNS53_JS), 请确认其正在运行 (常驻/开机自启由安装它的 CLI 负责)"
+        else
+            warn "未找到 dns53.js —— 请先安装 opencode 或其他附带 dns53 的 CLI, 或手动部署转发器"
+            warn "（glibc 程序在 Android 上无法直接解析 DNS, 这是硬依赖; 端口 53 需 root）"
+        fi
+        if [ -f "$RESOLV" ] && grep -q "127.0.0.1" "$RESOLV"; then
+            ok "glibc resolv.conf 已指向 127.0.0.1"
+        else
+            [ -f "$RESOLV" ] && cp "$RESOLV" "$RESOLV.bak.$(date +%s)"
+            printf "nameserver 127.0.0.1\n" > "$RESOLV"
+            warn "已写入 $RESOLV -> 127.0.0.1 (请确认 dns53 正在运行; 旧配置备份为 .bak.*)"
+        fi
     else
-        warn "未找到 dns53.js —— 请先安装 opencode 或其他附带 dns53 的 CLI, 或手动部署转发器"
-        warn "（glibc 程序在 Android 上无法直接解析 DNS, 这是硬依赖; 端口 53 需 root）"
-    fi
-    RESOLV="$PREFIX/etc/resolv.conf"
-    if [ -f "$RESOLV" ] && grep -q "127.0.0.1" "$RESOLV"; then
-        ok "glibc resolv.conf 已指向 127.0.0.1"
-    else
-        [ -f "$RESOLV" ] && cp "$RESOLV" "$RESOLV.bak.$(date +%s)"
-        printf "nameserver 127.0.0.1\n" > "$RESOLV"
-        warn "已写入 $RESOLV -> 127.0.0.1 (请确认 dns53 正在运行; 旧配置备份为 .bak.*)"
+        info "未检测到 root, 使用 dns-bootstrap 实测公共 DNS"
+        mkdir -p "$HOME_DIR/.local/bin"
+        # 生成 dns-bootstrap.js (复用 codex-termux 方案, 精简为单次模式)
+        if [ ! -f "$DNSBOOT" ]; then
+            cat > "$DNSBOOT" << 'DNSBOOT_EOF'
+#!/usr/bin/env node
+// dns-bootstrap — 无 root 环境下的 DNS 自动校验器
+// 实测候选 DNS 应答质量 (SERVFAIL/空/被过滤全判废), 只写入真实可用的 resolv.conf
+const dgram = require('dgram');
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const PUBLIC_DNS = ['223.5.5.5', '119.29.29.29', '114.114.114.114', '2400:3200::1', '2402:4e00::'];
+const PROBE_DOMAINS = ['api.deepseek.com', 'www.baidu.com'];
+const TIMEOUT_MS = 2500;
+const RESOLV = process.env.DNS_RESOLV_CONF || `${process.env.PREFIX || '/data/data/com.termux/files/usr'}/etc/resolv.conf`;
+function discoverPhoneDns() {
+  const servers = [];
+  try {
+    const props = execFileSync('/system/bin/getprop', [], { encoding: 'utf8', timeout: 3000 });
+    for (const line of props.split('\n')) {
+      const m = line.match(/^\[net\.\S+\.dns\d+\]:\s*\[([0-9.]+)\]/);
+      if (m) servers.push(m[1]);
+    }
+  } catch (_) {}
+  if (servers.length === 0) {
+    try {
+      const out = execFileSync('/system/bin/dumpsys', ['connectivity'], { encoding: 'utf8', timeout: 5000 });
+      const blocks = out.split('NetworkAgentInfo{').slice(1);
+      const scored = [];
+      for (const b of blocks) {
+        const dm = b.match(/DnsAddresses:\s*\[([^\]]*)\]/);
+        if (!dm) continue;
+        const ips = [];
+        let hit;
+        const re = /(\d{1,3}(?:\.\d{1,3}){3})/g;
+        while ((hit = re.exec(dm[1]))) ips.push(hit[1]);
+        if (!ips.length) continue;
+        const score = (b.includes('TRANSPORT_PRIMARY') ? 0 : 1) + (b.includes('INTERNET') && b.includes('VALIDATED') ? 0 : 2);
+        scored.push([score, ips]);
+      }
+      scored.sort((a, b) => a[0] - b[0]);
+      for (const [, ips] of scored) servers.push(...ips);
+    } catch (_) {}
+  }
+  return [...new Set(servers)].filter((ip) => ip !== '127.0.0.1' && ip !== '0.0.0.0');
+}
+function queryDNS(server, host, timeout = TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    const sock = dgram.createSocket(server.includes(':') ? 'udp6' : 'udp4');
+    const id = Buffer.from([Math.floor(Math.random() * 256), Math.floor(Math.random() * 256)]);
+    const q = Buffer.alloc(12 + 2 + host.length + 4);
+    id.copy(q, 0);
+    q[5] = 1;
+    let off = 12;
+    for (const part of host.split('.')) { q[off++] = part.length; q.write(part, off); off += part.length; }
+    q[off++] = 0; q[off++] = 0; q[off++] = 1; q[off++] = 0; q[off++] = 1;
+    const t0 = Date.now();
+    const timer = setTimeout(() => { try { sock.close(); } catch (_) {} resolve({ ok: false, reason: 'timeout', ms: Date.now() - t0 }); }, timeout);
+    sock.on('message', (resp) => {
+      clearTimeout(timer);
+      resolve({ ok: !badAnswer(resp), ms: Date.now() - t0, raw: resp });
+      try { sock.close(); } catch (_) {}
+    });
+    sock.on('error', () => { clearTimeout(timer); try { sock.close(); } catch (_) {} resolve({ ok: false, reason: 'error', ms: Date.now() - t0 }); });
+    sock.send(q, 53, server);
+  });
+}
+function badAnswer(resp) {
+  if (resp.length < 12) return true;
+  const rcode = resp.readUInt16BE(2) & 0x0f;
+  if (rcode === 2) return true;
+  if (rcode !== 0 && rcode !== 3) return true;
+  const qd = resp.readUInt16BE(4);
+  const an = resp.readUInt16BE(6);
+  if (an === 0) return rcode === 0;
+  let off = 12;
+  const skipName = (p) => {
+    let hops = 0;
+    while (off < p.length && p[off] !== 0) {
+      if ((p[off] & 0xc0) === 0xc0) { off += 2; return; }
+      off += p[off] + 1;
+      if (++hops > 32) break;
+    }
+    off++;
+  };
+  for (let i = 0; i < qd && off < resp.length; i++) { skipName(resp); off += 4; }
+  for (let i = 0; i < an && off + 10 <= resp.length; i++) {
+    skipName(resp);
+    const type = resp.readUInt16BE(off);
+    const len = resp.readUInt16BE(off + 8);
+    off += 10 + len;
+    if (type === 1 || type === 28) return false;
+  }
+  return true;
+}
+async function probe(server) {
+  for (const host of PROBE_DOMAINS) {
+    const r = await queryDNS(server, host);
+    if (r.ok) return { ip: server, ms: r.ms, host, ok: true };
+  }
+  return { ip: server, ms: Infinity, ok: false };
+}
+async function main() {
+  const phone = discoverPhoneDns();
+  const candidates = [...phone, ...PUBLIC_DNS];
+  const uniq = [];
+  for (const ip of candidates) if (!uniq.includes(ip)) uniq.push(ip);
+  if (uniq.length === 0) uniq.push(...PUBLIC_DNS);
+  const results = await Promise.all(uniq.map((ip) => probe(ip)));
+  const good = results.filter((r) => r.ok).sort((a, b) => a.ms - b.ms);
+  const top = good.slice(0, 3);
+  const body = top.length
+    ? top.map((r) => `nameserver ${r.ip}`).join('\n') + '\n'
+    : 'nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 2400:3200::1\n';
+  fs.mkdirSync(path.dirname(RESOLV), { recursive: true });
+  fs.writeFileSync(RESOLV, `# auto-written by dns-bootstrap.js @ ${new Date().toISOString()}\n${body}`);
+  console.log(`resolv.conf: ${top.map((r) => `${r.ip} (${r.ms}ms)`).join(', ') || 'fallback public DNS'}`);
+}
+main();
+DNSBOOT_EOF
+            chmod +x "$DNSBOOT"
+            info "dns-bootstrap.js 已生成: $DNSBOOT"
+        fi
+        # 立即实测一次
+        node "$DNSBOOT" || warn "DNS 实测失败, 已回退公共 DNS"
+        if [ -f "$RESOLV" ]; then
+            ok "glibc resolv.conf 已更新 (实测公共 DNS, 无需 root)"
+        fi
     fi
 }
 
