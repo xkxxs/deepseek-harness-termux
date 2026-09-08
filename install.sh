@@ -360,11 +360,7 @@ exec grun $NODE_DIR/bin/node --expose-internals $PREFIX/lib/node_modules/@deepse
 EOF
     cat > "$HOME_DIR/.local/bin/dsh" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-# dsh — DeepSeek Harness web 统一入口
-#   dsh           前台启动 web(占用终端, Ctrl+C 停止)
-#   dsh web       后台常驻启动(脱离终端, 日志 ~/.dsh/web.log)
-#   dsh stop      停止 web 服务
-set -euo pipefail
+set -uo pipefail
 
 WEB="$HOME/.local/bin/dsh-web"
 LOG="$HOME/.dsh/web.log"
@@ -373,8 +369,19 @@ URL="http://127.0.0.1:3080"
 case "${1:-}" in
     web)
         mkdir -p "$HOME/.dsh"
+        : > "$LOG"
         setsid nohup "$WEB" > "$LOG" 2>&1 < /dev/null &
-        echo "dsh web 后台启动中: $URL (日志: $LOG)"
+        TOKEN_URL=""
+        for i in $(seq 1 30); do
+            TOKEN_URL=$(grep -oP 'http://127\.0\.0\.1:3080/\?token=[^ ]+' "$LOG" 2>/dev/null | head -1 || true)
+            [ -n "$TOKEN_URL" ] && break
+            sleep 0.5
+        done
+        if [ -n "$TOKEN_URL" ]; then
+            echo "dsh web 已启动: $TOKEN_URL"
+        else
+            echo "dsh web 后台启动中: $URL (日志: $LOG)"
+        fi
         ;;
     stop)
         if pkill -f "[b]in.js web"; then
