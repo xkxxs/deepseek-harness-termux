@@ -29,6 +29,14 @@ WRAPPER_DIR="$GLIBC_PREFIX/opt/bin"
 DSH_VER="${DSH_VER:-}"
 PROFILE_DIR="$HOME_DIR/.dsh/profiles/web"
 PATCH_DIR="$(dirname "$(readlink -f "$0")")/patches"
+# 若 patches 目录不存在 (如通过 bash <(curl ...) 运行), 从 GitHub 下载
+if [ ! -d "$PATCH_DIR" ]; then
+    _tmp_patches="$(mktemp -d)"
+    for _p in 02-session-persistence-link-rename.patch 03-bash-persistent-rename.patch; do
+        curl -fsSL "https://raw.githubusercontent.com/xkxxs/deepseek-harness-termux/main/patches/$_p" -o "$_tmp_patches/$_p" 2>/dev/null || true
+    done
+    PATCH_DIR="$_tmp_patches"
+fi
 RUNNER_URL="https://raw.githubusercontent.com/xkxxs/deepseek-harness-termux/main/install.sh"
 DNS53_JS="$HOME_DIR/.local/bin/dns53.js"
 
