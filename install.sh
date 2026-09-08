@@ -332,7 +332,8 @@ EOF
 write_launcher() {
     mkdir -p "$HOME_DIR/.local/bin"
     cat > "$HOME_DIR/.local/bin/dsh-web" <<EOF
-#!/$PREFIX/bin/bash
+#!$PREFIX/bin/bash
+unset LD_PRELOAD
 export PATH=$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PREFIX/bin:$PREFIX/bin/applets
 exec grun $NODE_DIR/bin/node --expose-internals $PREFIX/lib/node_modules/@deepseek-ai/dsh/lib/bin.js web
 EOF
