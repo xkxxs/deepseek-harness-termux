@@ -314,18 +314,6 @@ apply_patches() {
             warn "补丁 03 未生效 — 需等待适配新版本"
         fi
     fi
-    # 4) 浏览器打开: process.execPath 指向 ld.so (grun), 用 am start 替代
-    local webapp_nm="$GLIBC_PREFIX/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app"
-    [ -d "$webapp_nm" ] || webapp_nm="$PREFIX/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-web-app"
-    if grep -q 'am start -a android.intent.action.VIEW' "$webapp_nm/lib/index.js" 2>/dev/null; then
-        ok "补丁 04 (浏览器 am start) 已生效, 跳过"
-    elif [ -d "$webapp_nm" ]; then
-        ( cd "$webapp_nm" && patch -p1 < "$PATCH_DIR/04-browser-open-am-start.patch" ) && \
-            ok "补丁 04 (浏览器 am start)" \
-            || warn "补丁 04 失败 — 浏览器自动打开可能不可用 (可手动复制 URL)"
-    else
-        warn "补丁 04 跳过 — 未找到 dsh-web-app"
-    fi
 }
 
 # ---------- profile 配置文件 (terminals 服务 + 权限) ----------
