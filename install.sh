@@ -403,6 +403,7 @@ main() {
     fix_cert
     fix_dns
     install_dependencies
+    unset LD_PRELOAD
     install_node
     write_wrappers
     install_dsh
