@@ -515,7 +515,6 @@ WEB="$HOME/.local/bin/dsh-web"
 LOG="$HOME/.dsh/web.log"
 URL="http://127.0.0.1:3080"
 DSH_PKG="@deepseek-ai/dsh"
-VERSION_FILE="$HOME/.dsh/version.json"
 GLIBC_PREFIX="/data/data/com.termux/files/usr/glibc"
 NODE_DIR="$GLIBC_PREFIX/opt/node-v24.19.0-linux-arm64"
 NPM="$NODE_DIR/bin/node $NODE_DIR/lib/node_modules/npm/bin/npm-cli.js"
@@ -535,19 +534,9 @@ version_ge() {
     [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
 }
 
-pin_version() {
-    local v
-    v="$(current_version)"
-    mkdir -p "$(dirname "$VERSION_FILE")"
-    cat > "$VERSION_FILE" <<EOF
-{"latest_version":"$v","last_checked_at":"$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)","dismissed_version":"$v"}
-EOF
-}
-
 do_update() {
     echo "→ 更新 $DSH_PKG…"
     PATH="$GRUN_PREFIX:$GLIBC_PREFIX/bin:$PATH" grun $NPM install -g --ignore-scripts "$DSH_PKG@latest" >/dev/null 2>&1 || return 1
-    pin_version
     echo "✓ 已更新: $(current_version)"
 }
 
