@@ -497,16 +497,84 @@ unset LD_PRELOAD
 export PATH=$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PREFIX/bin:$PREFIX/bin/applets
 exec grun $NODE_DIR/bin/node --expose-internals $PREFIX/lib/node_modules/@deepseek-ai/dsh/lib/bin.js web --no-open
 EOF
-    cat > "$HOME_DIR/.local/bin/dsh" <<'EOF'
+    cat > "$HOME_DIR/.local/bin/dsh" <<'DSH_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+# ============================================================
+# dsh — DeepSeek Harness 统一入口
+#   dsh           前台启动 web
+#   dsh web       后台常驻启动
+#   dsh stop      停止 web 服务
+#   dsh update    手动更新到最新版
+#
+# 启动前自动检查最新版本, 非最新则自动更新再启动
+# (可用 DSH_NO_AUTO_UPDATE=1 跳过检查)
+# ============================================================
 set -uo pipefail
 
 WEB="$HOME/.local/bin/dsh-web"
 LOG="$HOME/.dsh/web.log"
 URL="http://127.0.0.1:3080"
+DSH_PKG="@deepseek-ai/dsh"
+VERSION_FILE="$HOME/.dsh/version.json"
+GLIBC_PREFIX="/data/data/com.termux/files/usr/glibc"
+NODE_DIR="$GLIBC_PREFIX/opt/node-v24.19.0-linux-arm64"
+NPM="$NODE_DIR/bin/node $NODE_DIR/lib/node_modules/npm/bin/npm-cli.js"
+GRUN_PREFIX="/data/data/com.termux/files/usr/glibc/opt/bin"
+
+current_version() {
+    PATH="$GRUN_PREFIX:$GLIBC_PREFIX/bin:$PATH" grun "$NODE_DIR/bin/node" \
+        "$PREFIX/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" --version 2>/dev/null | head -1 || true
+}
+
+latest_version() {
+    PATH="$GRUN_PREFIX:$GLIBC_PREFIX/bin:$PATH" grun $NPM view "$DSH_PKG" version \
+        --fetch-timeout=10000 --fetch-retries=0 2>/dev/null || true
+}
+
+version_ge() {
+    [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
+pin_version() {
+    local v
+    v="$(current_version)"
+    mkdir -p "$(dirname "$VERSION_FILE")"
+    cat > "$VERSION_FILE" <<EOF
+{"latest_version":"$v","last_checked_at":"$(date -u +%Y-%m-%dT%H:%M:%S.000000000Z)","dismissed_version":"$v"}
+EOF
+}
+
+do_update() {
+    echo "→ 更新 $DSH_PKG…"
+    PATH="$GRUN_PREFIX:$GLIBC_PREFIX/bin:$PATH" grun $NPM install -g --ignore-scripts "$DSH_PKG@latest" >/dev/null 2>&1 || return 1
+    pin_version
+    echo "✓ 已更新: $(current_version)"
+}
+
+auto_update() {
+    [ "${DSH_NO_AUTO_UPDATE:-0}" = "1" ] && return 0
+    command -v grun >/dev/null 2>&1 || return 0
+    local LATEST CURRENT
+    LATEST="$(latest_version)"
+    [ -z "$LATEST" ] && return 0
+    CURRENT="$(current_version)"
+    if [ -z "$CURRENT" ] || ! version_ge "$CURRENT" "$LATEST"; then
+        echo "→ 检测到新版本 v${LATEST} (当前 ${CURRENT:-未知}), 自动更新…"
+        if do_update; then
+            echo "→ 更新完毕, 继续启动…"
+        else
+            echo "!! 自动更新失败, 继续使用现有版本" >&2
+        fi
+    fi
+    return 0
+}
 
 case "${1:-}" in
+    update|upgrade|--update|-u)
+        do_update || { echo "!! 更新失败" >&2; exit 1; }
+        ;;
     web)
+        auto_update
         mkdir -p "$HOME/.dsh"
         : > "$LOG"
         setsid nohup "$WEB" > "$LOG" 2>&1 < /dev/null &
@@ -530,14 +598,15 @@ case "${1:-}" in
         fi
         ;;
     "")
+        auto_update
         exec "$WEB"
         ;;
     *)
-        echo "用法: dsh | dsh web | dsh stop"
+        echo "用法: dsh | dsh web | dsh stop | dsh update"
         exit 1
         ;;
 esac
-EOF
+DSH_EOF
     chmod +x "$HOME_DIR/.local/bin/dsh-web" "$HOME_DIR/.local/bin/dsh"
     ok "启动器: ~/.local/bin/dsh (前台) / dsh web (常驻) / dsh stop (停止)"
 }
@@ -545,8 +614,8 @@ EOF
 # ---------- 验证 ----------
 verify() {
     PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun "$NODE_DIR/bin/node" "$PREFIX/lib/node_modules/@deepseek-ai/dsh/lib/bin.js" --version 2>/dev/null || fail "dsh --version 失败"
-    ok "安装完成。启动: ~/.local/bin/dsh-web → http://127.0.0.1:3080"
-    warn "升级: 重跑本脚本 (幂等); 官方无自动更新"
+    ok "安装完成。启动: dsh | dsh web | dsh stop"
+    warn "升级: dsh update (或重跑本脚本, 幂等); 启动时自动检查新版"
 }
 
 # ---------- 卸载 ----------
