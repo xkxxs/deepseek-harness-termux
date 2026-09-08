@@ -3,7 +3,7 @@
 > 2026-08-17 · OPPO/OnePlus · Termux (Android, aarch64)
 > 目标:在 Termux 上运行官方 `@deepseek-ai/dsh`(不固定版本,默认 latest),不做源码级 Android 适配,走 glibc 兼容层路线。
 >
-> **维护状态(2026-08):路线可行性已完整验证,本仓库暂停主动更新。** 补丁针对当前源码,新版本可能失效(失效时脚本仅警告、不中断安装);等 dsh 发布正式版并推送 musl 后再评估适配(或官方自行出 Termux/Android 适配)。
+> **路线可行性已完整验证。** 补丁针对当前源码,新版本可能失效(失效时脚本仅警告、不中断安装)。
 
 ## 0. 一键安装(移植到新设备)
 
@@ -13,7 +13,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/xkxxs/deepseek-harness-termu
 
 - 幂等:重跑 = 升级/修复;`--uninstall` 卸载(保留 dns53 与 ~/.dsh 数据)
 - 前置:Termux + aarch64;dns53 转发器(opencode 等 CLI 的附属组件,脚本检测到即跳过,不会重复安装)
-- 版本策略:node v24.19.0 固定;dsh **不固定版本,默认 latest**(可用 `DSH_VER=x ./install.sh` 覆盖);补丁失效时仅警告不中断;官方无自动更新,升级 = 手动重跑脚本
+- 版本策略:node v24.19.0 固定;dsh **不固定版本,默认 latest**(可用 `DSH_VER=x ./install.sh` 覆盖);补丁失效时仅警告不中断;启动时自动检查新版(跳过:`DSH_NO_AUTO_UPDATE=1`),或 `dsh update` 手动更新
 - 安装后,在终端使用(`http://127.0.0.1:3080` 访问 web UI;首次使用请在 UI 权限选择器切 danger-full-access):
 
 ```bash
@@ -25,8 +25,11 @@ dsh web
 
 # 停止服务
 dsh stop
+
+# 更新到最新版
+dsh update
 ```
-- 结构:install.sh(主脚本)+ patches/02,03(补丁)+ scripts/run_dsh_web.sh(旧启动脚本,已被 install.sh 生成的 ~/.local/bin/dsh 与 dsh-web 取代)
+- 结构:install.sh(主脚本)+ patches/02,03(补丁)+ ~/.local/bin/dsh,dsh-web(install.sh 生成的启动器)
 
 ---
 
@@ -133,8 +136,13 @@ dsh plugin --profile web add github:mexiaosqwq/dsh-web-mobile
 ### 2.7 启动
 
 ```bash
-# scripts/run_dsh_web.sh(本目录已存副本)
-grun $GLIBC_NODE --expose-internals /data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/lib/bin.js web
+# 启动器由 install.sh 生成:~/.local/bin/dsh 与 dsh-web
+# 前台启动
+dsh
+
+# 后台常驻(日志 ~/.dsh/web.log)
+dsh web
+
 # 服务:http://127.0.0.1:3080
 # --expose-internals 必须:HMR 插件(cordis-plugin-hmr)访问 node 内部模块(Node 22+ 默认禁用)
 ```
@@ -214,7 +222,7 @@ grun $GLIBC_NODE --expose-internals /data/data/com.termux/files/usr/lib/node_mod
 | 9 | **沙箱降级** | ✅ 行为符合设计 | 首次调用被拒(SandboxUnavailableError)→ agent 自动升级 → 批准后 pwd 成功 |
 | 10 | **持久终端 (bash_persistent)** | ✅ 装配 + 验证 | 见 3.8;跨调用保留环境变量/工作目录;普通 bash 不共享状态(对比测试) |
 | 11 | 打开链接/路径 (host-apiproxy) | ✅ 优雅降级(维持官方禁用) | 打开路径:canOpenNativePath() 检测无桌面 → UI 不暴露按钮(纯文本);web_fetch:官方 `fetch: false` + 无 provider 是有意 SSRF 防护;抓取用 firecrawl 替代 |
-| 12 | **升级流程** | ✅ 演练完成,结论明确 | 全局重装会**刷新 profile 依赖树,两个补丁全部丢失**(实测);重打 + 重启验证通过;官方无自动更新机制 |
+| 12 | **升级流程** | ✅ 演练完成,结论明确 | 全局重装会**刷新 profile 依赖树,两个补丁全部丢失**(实测);install.sh 自动重打;`dsh update` 可手动触发;启动时自动检查新版 |
 
 ---
 
@@ -222,9 +230,8 @@ grun $GLIBC_NODE --expose-internals /data/data/com.termux/files/usr/lib/node_mod
 
 ### 5.1 升级 = 补丁全丢(2026-08-17 实测)
 - `npm install -g @deepseek-ai/dsh` 重装会**刷新 profile 依赖树(pnpm 硬链接)**,两个补丁全部丢失:link→rename 持久化补丁、bash_persistent 改名补丁
-- dsh 处于 developer preview,破坏性变更频繁;**官方无自动更新机制**(无 update 子命令、无启动时/后台版本检查),更新完全手动
-- **升级流程**:① `npm install -g @deepseek-ai/dsh@<新版本>` ② 重打 patches/ 下补丁(`patch -p1` 于对应包目录 + sed 改名)③ 重启 ④ 发一条消息确认 JSONL 落盘 ⑤ 确认 bash_persistent 存在
-- 新版本补丁可能 context drift(打不上但无报错),`patch --dry-run` 先检查
+- 启动时自动检查新版(或 `dsh update` 手动更新),更新后补丁自动重打
+- **升级流程**:脚本自动完成:① npm 更新 ② 重打 patches/ 下补丁 ③ 可直接使用
 
 ### 5.2 DNS 三要素(缺一不可)
 1. dns53 常驻(手机重启后需重启,建议加开机自启)
@@ -233,7 +240,6 @@ grun $GLIBC_NODE --expose-internals /data/data/com.termux/files/usr/lib/node_mod
 
 ### 5.3 进程保活
 - dsh web 无开机自启;建议 `termux-wake-lock` 防止后台被杀
-- 启动脚本:本目录 `scripts/run_dsh_web.sh`(内容见 2.7)
 
 ### 5.4 数据备份
 - 全部数据在 `~/.dsh/`(profiles + sessions + settings),备份这一个目录即可
@@ -260,7 +266,6 @@ wrapper 目录        /data/data/com.termux/files/usr/glibc/opt/bin/{node,pnpm}
 全局 dsh            /data/data/com.termux/files/usr/lib/node_modules/@deepseek-ai/dsh/
 profile + 数据      ~/.dsh/
 dns53 日志          ~/.codex/dns53.log
-启动脚本(副本)      ~/deepseek-harness-termux/scripts/run_dsh_web.sh
 持久化补丁(副本)    ~/deepseek-harness-termux/patches/02-session-persistence-link-rename.patch
 ```
 
@@ -268,7 +273,7 @@ dns53 日志          ~/.codex/dns53.log
 
 | 组件 | 版本 |
 |---|---|
-| @deepseek-ai/dsh | 0.1.0-rc.7 |
+| @deepseek-ai/dsh | 0.1.2-rc.1 |
 | Node.js (glibc) | 24.19.0 (nodejs.org linux-arm64) |
 | npm | 11.17.0 |
 | koffi | 3.1.5(预编译 @koromix/koffi-linux-arm64) |
