@@ -1,0 +1,23 @@
+--- a/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-web-app/lib/index.js
+@@ -125,15 +125,8 @@
+ function spawnBrowserLauncher(url) {
+-	return spawn(process.execPath, [
+-		"--input-type=module",
+-		"--eval",
+-		BROWSER_OPENER_PROGRAM,
+-		"--",
+-		url
+-	], {
+-		env: scrubbedParentEnv(),
+-		stdio: [
+-			"ignore",
+-			"inherit",
+-			"pipe"
+-		]
+-	});
++	try {
++		require("child_process").execSync("am start -a android.intent.action.VIEW -d " + JSON.stringify(url), { stdio: "ignore" });
++	} catch {}
++	return spawn("true", [], { stdio: ["ignore", "ignore", "ignore"] });
+ }
