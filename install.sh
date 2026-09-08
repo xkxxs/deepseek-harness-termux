@@ -266,6 +266,19 @@ init_profile() {
     info "安装 dsh-web-mobile 插件 (竖屏 UI)…"
     PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun "$NODE_DIR/bin/node" --expose-internals "$bin" plugin --profile web add github:mexiaosqwq/dsh-web-mobile || \
         warn "dsh-web-mobile 插件安装失败 (可忽略, 不影响核心功能)"
+    # 去重: 插件可能同时注册 @dsh-external/dsh-mobile-nav 和 dsh-web-mobile, 导致 locale 冲突
+    local pkg_json="$PROFILE_DIR/package.json"
+    if [ -f "$pkg_json" ] && grep -q '@dsh-external/dsh-mobile-nav' "$pkg_json"; then
+        grun "$NODE_DIR/bin/node" -e "
+const fs = require('fs');
+const p = JSON.parse(fs.readFileSync('$pkg_json','utf8'));
+delete p.dependencies['@dsh-external/dsh-mobile-nav'];
+p.dsh.profile.bundles = (p.dsh.profile.bundles||[]).filter(b => b !== '@dsh-external/dsh-mobile-nav');
+fs.writeFileSync('$pkg_json', JSON.stringify(p,null,2));
+" 2>/dev/null && ok "去重: 移除 @dsh-external/dsh-mobile-nav" || warn "去重失败, 可能需手动修复"
+        PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/npm/bin/npm-cli.js" install -g pnpm >/dev/null 2>&1 || true
+        ( cd "$PROFILE_DIR" && PATH="$WRAPPER_DIR:$GLIBC_PREFIX/bin:$PATH" grun "$NODE_DIR/bin/node" "$NODE_DIR/lib/node_modules/pnpm/bin/pnpm.cjs" install >/dev/null 2>&1 ) || true
+    fi
     ok "profile 插件就绪"
 }
 
