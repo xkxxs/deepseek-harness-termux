@@ -362,7 +362,7 @@ case "${1:-}" in
         fi
         ;;
     "")
-        "$WEB"
+        "$WEB" || true
         ;;
     *)
         echo "用法: dsh | dsh web | dsh stop"
