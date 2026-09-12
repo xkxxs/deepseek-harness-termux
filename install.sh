@@ -32,7 +32,7 @@ PATCH_DIR="$(dirname "$(readlink -f "$0")")/patches"
 # 若 patches 目录不存在 (如通过 bash <(curl ...) 运行), 从 GitHub 下载
 if [ ! -d "$PATCH_DIR" ]; then
     _tmp_patches="$(mktemp -d)"
-    for _p in 02-session-persistence-link-rename.patch 03-bash-persistent-rename.patch; do
+    for _p in apply-patch-02.py 03-bash-persistent-rename.patch; do
         curl -fsSL "https://raw.githubusercontent.com/xkxxs/deepseek-harness-termux/main/patches/$_p" -o "$_tmp_patches/$_p" 2>/dev/null || true
     done
     PATCH_DIR="$_tmp_patches"
@@ -431,8 +431,7 @@ apply_patches() {
     if grep -q 'error?.code === "EACCES"' "$profiles_nm/dsh-session-persistence-jsonl/lib/index.js" 2>/dev/null; then
         ok "补丁 02 (会话持久化 link->rename) 已生效, 跳过"
     else
-        ( cd "$profiles_nm/dsh-session-persistence-jsonl" && \
-          patch -p1 < "$PATCH_DIR/02-session-persistence-link-rename.patch" ) || \
+        python3 "$PATCH_DIR/apply-patch-02.py" "$profiles_nm/dsh-session-persistence-jsonl/lib/index.js" 2>/dev/null || \
           warn "补丁 02 失败 — 版本漂移? (会话持久化可能失效, 重启后历史可能丢失)"
         if grep -q 'error?.code === "EACCES"' "$profiles_nm/dsh-session-persistence-jsonl/lib/index.js" 2>/dev/null; then
             ok "补丁 02 (会话持久化 link->rename)"
