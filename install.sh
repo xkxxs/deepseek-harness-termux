@@ -468,7 +468,16 @@ export function apply(ctx) {
 	new TerminalSessionService(ctx);
 }
 EOF
-    if [ ! -s "$PROFILE_DIR/cordis.patch.yml" ] || [ "$(cat "$PROFILE_DIR/cordis.patch.yml")" = "[]" ]; then
+    cat > "$PROFILE_DIR/plugins/bash-persistent-hint.js" <<'EOF'
+export const name = "bash-persistent-hint";
+
+export function apply(ctx) {
+    ctx.on("system-prompt", (e) => {
+        e.result += `\n\n## 持久终端\n\n当需要跨多步调用保持环境变量、工作目录或 shell 状态时，使用 \`bash_persistent\` 工具（而非普通 \`bash\`）。普通 \`bash\` 每次调用都是全新 shell，不共享状态。`;
+    });
+}
+EOF
+    if [ ! -s "$PROFILE_DIR/cordis.patch.yml" ] || ! grep -q 'insert:' "$PROFILE_DIR/cordis.patch.yml" 2>/dev/null; then
         cat > "$PROFILE_DIR/cordis.patch.yml" <<'EOF'
 - insert:
     - id: terminals
@@ -481,6 +490,9 @@ EOF
 
     - id: tool-bash-persistent
       name: '@deepseek-ai/dsh-tool-bash-persistent'
+
+    - id: bash-persistent-hint
+      name: ./plugins/bash-persistent-hint.js
 EOF
     else
         warn "cordis.patch.yml 非空, 跳过覆盖 (如需持久终端请手动合并)"
