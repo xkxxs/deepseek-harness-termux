@@ -348,6 +348,69 @@ WEB="$HOME/.local/bin/dsh-web"
 LOG="$HOME/.dsh/web.log"
 URL="http://127.0.0.1:3080"
 
+open_browser() {
+    local token_url="$1"
+    local tmpdir="$HOME/.dsh"
+    local port_file="$tmpdir/.redirect_port"
+    local html_file="$tmpdir/.redirect.html"
+    local server_py="$tmpdir/.redirect_server.py"
+    rm -f "$port_file"
+
+    cat > "$html_file" << HTMLEOF
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="refresh" content="0;url=${token_url}">
+<script>window.location.replace("${token_url}");</script>
+</head><body>
+<p>正在跳转… <a href="${token_url}">点击这里</a></p>
+</body></html>
+HTMLEOF
+
+    cat > "$server_py" << 'PYEOF'
+import http.server, socketserver, threading, sys, time, os
+
+port_file = os.environ.get("PORT_FILE", "/tmp/.dsh_redirect_port")
+html_file = os.environ.get("HTML_FILE", "/tmp/.dsh_redirect.html")
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        with open(html_file, "rb") as f:
+            content = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+    def log_message(self, *a): pass
+
+with socketserver.TCPServer(("127.0.0.1", 0), Handler) as s:
+    port = s.server_address[1]
+    with open(port_file, "w") as f:
+        f.write(str(port))
+    t = threading.Thread(target=s.serve_forever, daemon=True)
+    t.start()
+    time.sleep(5)
+PYEOF
+
+    PORT_FILE="$port_file" HTML_FILE="$html_file" python3 "$server_py" &
+    local pid=$!
+
+    local port=""
+    for i in $(seq 1 10); do
+        [ -f "$port_file" ] && port=$(cat "$port_file") && break
+        sleep 0.2
+    done
+
+    if [ -n "$port" ] && [[ "$port" =~ ^[0-9]+$ ]]; then
+        am start -a android.intent.action.VIEW -d "http://127.0.0.1:$port" >/dev/null 2>&1 || true
+    else
+        am start -a android.intent.action.VIEW -d "$URL" >/dev/null 2>&1 || true
+    fi
+
+    wait $pid 2>/dev/null || true
+    rm -f "$server_py" "$port_file" "$html_file"
+}
+
 case "${1:-}" in
     web)
         mkdir -p "$HOME/.dsh"
@@ -365,7 +428,7 @@ case "${1:-}" in
         "$WEB"
         ;;
     *)
-        echo "用法: dsh | dsh web | dsh stop"
+        echo "用法: dsh (前台) | dsh web (后台+自动跳转) | dsh stop | dsh update"
         exit 1
         ;;
 esac
