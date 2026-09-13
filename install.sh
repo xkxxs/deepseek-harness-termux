@@ -293,6 +293,19 @@ apply_patches() {
             warn "补丁 03 未生效 — 需等待适配新版本"
         fi
     fi
+    # 3) 附件存储: Android SELinux 阻止硬链接, 回退 rename + 跳过不可访问目录同步
+    if grep -q 'Android.*hard links blocked' "$profiles_nm/dsh-attachment-local/lib/index.js" 2>/dev/null; then
+        ok "补丁 04 (附件 link->rename) 已生效, 跳过"
+    else
+        ( cd "$profiles_nm/dsh-attachment-local" && \
+          patch -p1 < "$PATCH_DIR/04-attachment-link-fallback.patch" ) || \
+          warn "补丁 04 失败 — 版本漂移? (图片附件可能无法发送)"
+        if grep -q 'Android.*hard links blocked' "$profiles_nm/dsh-attachment-local/lib/index.js" 2>/dev/null; then
+            ok "补丁 04 (附件 link->rename)"
+        else
+            warn "补丁 04 未生效 — 需等待适配新版本"
+        fi
+    fi
 }
 
 # ---------- profile 配置文件 (terminals 服务 + 权限) ----------

@@ -1,0 +1,48 @@
+--- a/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js
++++ b/node_modules/@deepseek-ai/dsh-attachment-local/lib/index.js
+@@ -349,11 +349,17 @@
+ async function syncDirectory(path) {
+ 	/* v8 ignore next -- Windows cannot open directory handles; NTFS metadata journaling owns entry durability there. */
+ 	if (process.platform === "win32") return;
+ 	/* v8 ignore start -- Windows cannot exercise directory fsync; POSIX behavior tests enforce this peer. */
+-	const handle = await open(path, constants.O_RDONLY);
+-	try {
+-		await handle.sync();
+-	} finally {
+-		await handle.close();
++	try {
++		const handle = await open(path, constants.O_RDONLY);
++		try {
++			await handle.sync();
++		} finally {
++			await handle.close();
++		}
++	} catch (error) {
++		/* Android: skip sync for inaccessible directories (e.g., /data/data) */
++		if (error.code === "EACCES" || error.code === "EPERM") return;
++		throw error;
+ 	}
+ 	/* v8 ignore stop */
+ }
+@@ -538,7 +544,15 @@
+ 	try {
+ 		await ensureDurableDirectory(parent, staged.boundary);
+ 		try {
+ 			await link(staged.path, target);
+ 		} catch (error) {
+-			/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
+-			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+-			if (await digestFile(target) !== staged.sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");
++			/* Android: hard links blocked by SELinux, fall back to rename */
++			if (error.code === "EACCES" || error.code === "EPERM") {
++				await rename(staged.path, target);
++			} else if (error instanceof Error && "code" in error && error.code === "EEXIST") {
++				/* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
++				if (await digestFile(target) !== staged.sha256) throw new AttachmentError("Stored attachment failed integrity verification.", "ATTACHMENT_CORRUPT");
++			} else {
++				throw error;
++			}
+ 		}
+-		await unlink(staged.path);
++		await unlink(staged.path).catch(() => {});
+ 		await chmod(target, 256);

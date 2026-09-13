@@ -27,7 +27,7 @@ dsh stop
 # 更新版本
 dsh update
 ```
-- 结构:install.sh(主脚本)+ patches/apply-patch-02.py(补丁02)+ patches/03-bash-persistent-rename.patch(补丁03)
+- 结构:install.sh(主脚本)+ patches/apply-patch-02.py(补丁02)+ patches/03-bash-persistent-rename.patch(补丁03)+ patches/04-attachment-link-fallback.patch(补丁04)
 
 ---
 
@@ -256,6 +256,7 @@ dsh web
 - 沙箱不可用:安全降级,命令需升级批准后直跑(切 danger-full-access 预设可免除审批)
 - 打开链接(web_fetch):官方有意禁用(SSRF 防护设计,无 fetch provider),抓取内容用 firecrawl / web_search 替代
 - 工具链(clang-glibc 等)占数百 MB,勿随意 autoremove(编译 node-pty 需要)
+- 图片附件:Android SELinux 阻止硬链接,补丁 04 回退 rename;升级全局 dsh 后需重打
 
 ---
 
